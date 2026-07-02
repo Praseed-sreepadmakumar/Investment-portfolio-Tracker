@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { AuthShell } from "../components/AuthShell";
 import { FormField } from "../components/FormField";
@@ -82,11 +82,6 @@ export function LoginPage() {
         >
           {isSubmitting ? "Signing in..." : "Sign in"}
         </button>
-
-        <p className="helper-copy">
-          New here? <Link to="/register">Register an account</Link> and come
-          right back.
-        </p>
       </form>
     </AuthShell>
   );
