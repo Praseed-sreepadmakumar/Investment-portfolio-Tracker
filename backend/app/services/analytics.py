@@ -5,8 +5,15 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.orm import Session
 
 from app.schemas.analytics import AllocationItemResponse, PerformanceResponse
-from app.services.market import get_company_name, get_current_price
-from app.services.portfolio import list_user_portfolios
+from app.services.market import (
+    InvalidStockSymbolError,
+    MarketDataUnavailableError,
+    get_company_name,
+)
+from app.services.portfolio import (
+    list_user_portfolios,
+    resolve_holding_price_with_fallback,
+)
 
 MONEY_QUANTIZE = Decimal("0.01")
 PERCENT_QUANTIZE = Decimal("0.01")
@@ -33,14 +40,19 @@ def _calculate_performance_values(db: Session, user_id: int) -> tuple[Decimal, D
 
     total_investment = Decimal("0")
     current_portfolio_value = Decimal("0")
+    has_cached_price_updates = False
 
     for holding in holdings:
         quantity = _to_decimal(holding.quantity)
         purchase_price = _to_decimal(holding.purchase_price)
-        market_price = _to_decimal(get_current_price(holding.symbol))
+        market_price, _, cache_updated = resolve_holding_price_with_fallback(holding)
+        has_cached_price_updates = has_cached_price_updates or cache_updated
 
         total_investment += quantity * purchase_price
         current_portfolio_value += quantity * market_price
+
+    if has_cached_price_updates:
+        db.commit()
 
     return total_investment, current_portfolio_value
 
@@ -70,16 +82,23 @@ def get_allocation_summary(db: Session, user_id: int) -> list[AllocationItemResp
     symbol_totals: dict[str, Decimal] = {}
     symbol_names: dict[str, str] = {}
     total_portfolio_value = Decimal("0")
+    has_cached_price_updates = False
 
     for holding in holdings:
         if holding.symbol not in symbol_names:
-            symbol_names[holding.symbol] = get_company_name(holding.symbol)
+            try:
+                symbol_names[holding.symbol] = get_company_name(holding.symbol)
+            except (InvalidStockSymbolError, MarketDataUnavailableError):
+                symbol_names[holding.symbol] = holding.symbol
 
-        holding_value = _to_decimal(holding.quantity) * _to_decimal(
-            get_current_price(holding.symbol)
-        )
+        market_price, _, cache_updated = resolve_holding_price_with_fallback(holding)
+        has_cached_price_updates = has_cached_price_updates or cache_updated
+        holding_value = _to_decimal(holding.quantity) * market_price
         symbol_totals[holding.symbol] = symbol_totals.get(holding.symbol, Decimal("0")) + holding_value
         total_portfolio_value += holding_value
+
+    if has_cached_price_updates:
+        db.commit()
 
     if total_portfolio_value == 0:
         return []

@@ -10,7 +10,12 @@ from app.schemas.portfolio import (
     PortfolioOverviewResponse,
     PortfolioUpdate,
 )
-from app.services.market import get_current_price, validate_stock
+from app.services.market import (
+    InvalidStockSymbolError,
+    MarketDataUnavailableError,
+    get_current_price,
+    validate_stock,
+)
 
 MONEY_QUANTIZE = Decimal("0.01")
 
@@ -25,6 +30,22 @@ def _round_money(value: Decimal) -> Decimal:
     return value.quantize(MONEY_QUANTIZE, rounding=ROUND_HALF_UP)
 
 
+def resolve_holding_price_with_fallback(
+    holding: Portfolio,
+) -> tuple[Decimal, str, bool]:
+    """Resolve price using live quote, then cached quote, then purchase price."""
+    try:
+        live_price = _round_money(_to_decimal(get_current_price(holding.symbol)))
+        if holding.last_live_price != live_price:
+            holding.last_live_price = live_price
+            return live_price, "live", True
+        return live_price, "live", False
+    except (MarketDataUnavailableError, InvalidStockSymbolError):
+        if holding.last_live_price is not None:
+            return _to_decimal(holding.last_live_price), "cached", False
+        return _to_decimal(holding.purchase_price), "purchase", False
+
+
 def create_portfolio_holding(
     db: Session,
     user_id: int,
@@ -33,12 +54,14 @@ def create_portfolio_holding(
     """Create and persist a new holding for the authenticated user."""
     # Only persist holdings for symbols that resolve to live market data.
     validate_stock(portfolio_in.symbol)
+    initial_live_price = _round_money(_to_decimal(get_current_price(portfolio_in.symbol)))
 
     portfolio = Portfolio(
         user_id=user_id,
         symbol=portfolio_in.symbol,
         quantity=portfolio_in.quantity,
         purchase_price=portfolio_in.purchase_price,
+        last_live_price=initial_live_price,
         purchase_date=portfolio_in.purchase_date,
     )
     db.add(portfolio)
@@ -64,11 +87,16 @@ def list_user_portfolio_overview(
     """Return user holdings enriched with live price and profit/loss columns."""
     holdings = list_user_portfolios(db, user_id)
     overview_rows: list[PortfolioOverviewResponse] = []
+    has_cached_price_updates = False
 
     for holding in holdings:
         quantity = _to_decimal(holding.quantity)
         purchase_price = _to_decimal(holding.purchase_price)
-        current_price = _to_decimal(get_current_price(holding.symbol))
+        current_price, price_source, cache_updated = resolve_holding_price_with_fallback(
+            holding
+        )
+        has_cached_price_updates = has_cached_price_updates or cache_updated
+
         profit_loss = (current_price - purchase_price) * quantity
 
         overview_rows.append(
@@ -79,8 +107,13 @@ def list_user_portfolio_overview(
                 purchase_price=_round_money(purchase_price),
                 current_price=_round_money(current_price),
                 profit_loss=_round_money(profit_loss),
+                is_live_price=price_source == "live",
+                price_source=price_source,
             )
         )
+
+    if has_cached_price_updates:
+        db.commit()
 
     return overview_rows
 
@@ -102,10 +135,12 @@ def update_portfolio_holding(
     """Apply user-owned holding updates and persist the changes."""
     # Re-validate the symbol in case the user changes the holding ticker.
     validate_stock(portfolio_in.symbol)
+    refreshed_live_price = _round_money(_to_decimal(get_current_price(portfolio_in.symbol)))
 
     portfolio.symbol = portfolio_in.symbol
     portfolio.quantity = portfolio_in.quantity
     portfolio.purchase_price = portfolio_in.purchase_price
+    portfolio.last_live_price = refreshed_live_price
     portfolio.purchase_date = portfolio_in.purchase_date
     db.commit()
     db.refresh(portfolio)

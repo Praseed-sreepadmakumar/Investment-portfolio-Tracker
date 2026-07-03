@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -54,3 +55,5 @@ class PortfolioOverviewResponse(BaseModel):
     purchase_price: Decimal
     current_price: Decimal
     profit_loss: Decimal
+    is_live_price: bool
+    price_source: Literal["live", "cached", "purchase"]

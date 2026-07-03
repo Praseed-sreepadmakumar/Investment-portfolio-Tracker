@@ -17,4 +17,5 @@ class Portfolio(Base):
     symbol = Column(String(20), index=True, nullable=False)
     quantity = Column(Numeric(18, 4), nullable=False)
     purchase_price = Column(Numeric(18, 2), nullable=False)
+    last_live_price = Column(Numeric(18, 2), nullable=True)
     purchase_date = Column(Date, default=date.today, nullable=False)

@@ -20,6 +20,31 @@ function toQuantity(value: string) {
   }).format(Number(value));
 }
 
+function getPriceSourceBadge(row: PortfolioHoldingRow): {
+  label: string;
+  title: string;
+  tone: "cached" | "purchase";
+} | null {
+  if (row.price_source === "cached") {
+    return {
+      label: "cached",
+      title: "Live quote unavailable; using last saved live price.",
+      tone: "cached",
+    };
+  }
+
+  if (row.price_source === "purchase") {
+    return {
+      label: "purchase",
+      title:
+        "Live quote unavailable and no saved live price exists yet; using purchase price.",
+      tone: "purchase",
+    };
+  }
+
+  return null;
+}
+
 export function HoldingsTable({
   rows,
   onDelete,
@@ -51,6 +76,7 @@ export function HoldingsTable({
             const profit = Number(row.profit_loss);
             const tone =
               profit > 0 ? "positive" : profit < 0 ? "negative" : "neutral";
+            const sourceBadge = getPriceSourceBadge(row);
 
             return (
               <tr key={row.id}>
@@ -60,7 +86,17 @@ export function HoldingsTable({
                   {toCurrency(row.purchase_price)}
                 </td>
                 <td data-label="Current Price">
-                  {toCurrency(row.current_price)}
+                  <span className="current-price-cell">
+                    <span>{toCurrency(row.current_price)}</span>
+                    {sourceBadge ? (
+                      <span
+                        className={`price-source-badge price-source-badge--${sourceBadge.tone}`}
+                        title={sourceBadge.title}
+                      >
+                        {sourceBadge.label}
+                      </span>
+                    ) : null}
+                  </span>
                 </td>
                 <td data-label="Profit/Loss">
                   <span className={`profit-chip profit-chip--${tone}`}>

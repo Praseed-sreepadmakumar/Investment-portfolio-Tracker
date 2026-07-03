@@ -45,6 +45,15 @@ def initialize_database() -> None:
                 text("UPDATE users SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
             )
 
+        if "portfolios" in tables:
+            portfolio_columns = {
+                column["name"] for column in inspector.get_columns("portfolios")
+            }
+            if "last_live_price" not in portfolio_columns:
+                connection.execute(
+                    text("ALTER TABLE portfolios ADD COLUMN last_live_price NUMERIC(18, 2)")
+                )
+
         # Keep lookups and duplicate checks fast even on upgraded databases.
         connection.execute(
             text(

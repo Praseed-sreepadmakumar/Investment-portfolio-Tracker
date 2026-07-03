@@ -5,6 +5,8 @@ export interface PortfolioHoldingRow {
   purchase_price: string;
   current_price: string;
   profit_loss: string;
+  is_live_price: boolean;
+  price_source: "live" | "cached" | "purchase";
 }
 
 export interface CreateHoldingRequest {
